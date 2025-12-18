@@ -1,0 +1,427 @@
+<!-- Save as index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Keyword Searcher + Telegram Uploader</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#05080c; --neon:#00ff99; --muted:#9aa; }
+  *{box-sizing:border-box;font-family:Inter,system-ui,Arial;}
+  body{margin:0;background:radial-gradient(circle at top,#071018,#000); color:#e8eef1; display:flex;justify-content:center;padding:28px;}
+  .wrap{width:100%;max-width:1100px;background:linear-gradient(180deg,rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:14px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,0.6);}
+  h1{margin:0 0 14px;color:var(--muted);font-size:16px;}
+  .grid{display:grid;grid-template-columns:1fr 360px;gap:16px;}
+  .card{background:rgba(255,255,255,0.02);border-radius:10px;padding:12px;border:1px solid rgba(0,255,153,0.06);}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  input[type=file]{width:100%;padding:10px;background:#061016;border-radius:8px;border:1px dashed rgba(0,255,153,0.06);color:var(--neon);}
+  textarea{width:100%;min-height:110px;padding:10px;border-radius:8px;background:#061016;border:1px solid rgba(0,255,153,0.06);color:var(--neon);resize:vertical;}
+  .btn{display:inline-block;padding:10px 12px;border-radius:8px;background:linear-gradient(90deg,var(--neon),#00cc66);color:#042;font-weight:700;border:none;cursor:pointer;margin-right:8px;}
+  .btn.secondary{background:linear-gradient(90deg,#00a6ff,#0066ff);color:#001018;}
+  .results-list{max-height:420px;overflow:auto;margin-top:12px;border-radius:8px;}
+  .row{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.02);}
+  .domain{color:#dfe;}
+  .count{color:var(--neon);font-weight:700;}
+  .muted{color:#9aa;font-size:13px;margin-top:8px;}
+  .small{font-size:13px;color:#9aa}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .rightcol .card{margin-bottom:12px;}
+  .qr-img{background:#071018;padding:8px;border-radius:8px;text-align:center;}
+  select{width:100%;padding:8px;border-radius:8px;background:#061016;border:1px solid rgba(255,255,255,0.03);color:var(--neon);}
+  .flex{display:flex;gap:8px;align-items:center;}
+  footer{margin-top:14px;color:#889;}
+  .notice{padding:10px;border-radius:8px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.02);color:#bcd;margin-top:10px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Cosmic Keyword Searcher — Full UI + Telegram Client Upload (frontend)</h1>
+    <div class="grid">
+      <!-- LEFT: Keyword & File Tools -->
+      <div>
+        <div class="card">
+          <label>1) Select file (any text file)</label>
+          <input id="fileInput" type="file" accept=".txt,.log,.csv,.json,.md,.html,.js,.out" />
+          <div class="muted">Large files work but for GB-size logs use a server-side processor (optional).</div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
+          <label>2) Enter keywords (comma or newline separated)</label>
+          <textarea id="keywords" placeholder="e.g. garena.com, roblox.com, paypal.com"></textarea>
+
+          <div class="controls" style="margin-top:10px;">
+            <button class="btn" onclick="scanFile()">SCAN FILE</button>
+            <button class="btn secondary" onclick="scanDomains()">AUTO-DETECT DOMAINS</button>
+            <button class="btn" onclick="downloadResults()">DOWNLOAD RESULTS</button>
+            <button class="btn secondary" onclick="prepareSend()">SEND TO TELEGRAM</button>
+          </div>
+
+          <div class="muted">UI only shows summary: keyword → total found. Click "Download Results" to get per-keyword .txt files containing matched lines.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
+          <label>3) Relation Finder (target-based)</label>
+          <div class="small">Enter a target keyword (domain or token) and click "Find Relations". It lists which of your other keywords appear on the same lines as the target.</div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <input id="relationTarget" placeholder="target (e.g. garena.com)" style="flex:1;padding:8px;border-radius:8px;background:#061016;border:1px solid rgba(255,255,255,0.03);color:var(--neon)">
+            <button class="btn" onclick="findRelations()">Find Relations</button>
+          </div>
+          <div id="relationOutput" class="results-list" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px;">
+          <label>4) Per-Domain Results (auto-extract domains from file)</label>
+          <div class="small">Click "AUTO-DETECT DOMAINS" to extract domains and counts like the screenshot (subdomains included).</div>
+          <div id="domainResults" class="results-list"></div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Telegram Login & Send -->
+      <div class="rightcol">
+        <div class="card">
+          <label>Telegram Client Login (requires backend)</label>
+          <div class="small">This frontend WILL CALL backend endpoints to do Telegram client login (MTProto). You must run the backend (example Node.js/gramjs) at <code>http://localhost:3000</code>.</div>
+
+          <div style="margin-top:10px">
+            <label>API_ID</label>
+            <input id="apiId" placeholder="API_ID (integer)" style="padding:8px;border-radius:8px;background:#071018;border:1px solid rgba(255,255,255,0.03);color:var(--neon)">
+
+            <label style="margin-top:8px">API_HASH</label>
+            <input id="apiHash" placeholder="API_HASH" style="padding:8px;border-radius:8px;background:#071018;border:1px solid rgba(255,255,255,0.03);color:var(--neon)">
+
+            <div class="controls" style="margin-top:8px;">
+              <button class="btn" onclick="startPhoneLogin()">Start Phone Login</button>
+              <button class="btn secondary" onclick="startQrLogin()">Start QR Login</button>
+            </div>
+          </div>
+
+          <div id="authFlow" style="margin-top:10px"></div>
+        </div>
+
+        <div class="card">
+          <label>Channels (fetch from backend after login)</label>
+          <div style="margin-top:8px">
+            <button class="btn" onclick="fetchChannels()">Refresh Channels</button>
+            <div style="margin-top:8px">
+              <select id="channelSelect"><option value="">-- channels will appear here after login --</option></select>
+            </div>
+            <div class="muted" style="margin-top:8px">Choose a channel and click SEND. Files are posted as documents.</div>
+            <div style="margin-top:8px">
+              <button class="btn" onclick="sendToTelegram()">SEND SELECTED CHANNEL</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <label>Preview / Status</label>
+          <div id="status" class="small">No action yet.</div>
+          <div id="sendPreview" style="margin-top:8px;"></div>
+        </div>
+
+        <div class="card">
+          <label>Notes</label>
+          <div class="notice small">
+            • The frontend does the file parsing and creates per-keyword files client-side (no upload until you click SEND).<br>
+            • Telegram client actions (login, qr, channels, send) are performed by your backend using your Telegram API credentials — do not expose them to third parties.<br>
+            • Example backend endpoints expected: <code>/auth/start</code>, <code>/auth/sendCode</code>, <code>/auth/verify</code>, <code>/auth/qr/start</code>, <code>/channels</code>, <code>/send</code>.
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <footer>
+      <div class="small">Frontend UI (single file). See the end of this page for a tiny server reference you can use to implement the Telegram client backend.</div>
+    </footer>
+  </div>
+
+<script>
+let fileText = "";
+let keywordData = {};
+let domainCounts = {};
+
+function readSelectedFile(cb){
+  const f = document.getElementById('fileInput').files[0];
+  if(!f){ alert('Select a file first'); return; }
+  const reader = new FileReader();
+  reader.onload = e => { fileText = e.target.result || ""; cb(); };
+  reader.readAsText(f);
+}
+
+function getKeywords(){ const raw = document.getElementById('keywords').value; return raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).map(s=>s.toLowerCase()); }
+
+function scanFile(){
+  readSelectedFile(()=>{
+    const keywords = getKeywords();
+    if(!keywords.length){ alert('Enter keywords first'); return; }
+    const lines = fileText.split(/\r?\n/);
+    keywordData = {};
+    keywords.forEach(k => keywordData[k]=[]);
+    lines.forEach(line=>{
+      const lower = line.toLowerCase();
+      keywords.forEach(k=>{
+        if(lower.includes(k)){
+          keywordData[k].push(line);
+        }
+      });
+    });
+    renderKeywordSummary();
+  });
+}
+
+function renderKeywordSummary(){
+  const out = document.getElementById('results');
+  if(out) out.remove();
+  const container = document.createElement('div');
+  container.id = 'results';
+  container.className = 'card';
+  container.style.marginTop = '12px';
+  let inner = '<div class="small muted">Keyword results (summary only):</div>';
+  inner += '<div class="results-list">';
+  let any=false;
+  Object.entries(keywordData).forEach(([k,lines])=>{
+    if(lines.length){
+      any=true;
+      inner += `<div class="row"><div class="domain">${escapeHtml(k)}</div><div class="count">${lines.length.toLocaleString()}</div></div>`;
+    }
+  });
+  if(!any) inner += '<div class="small" style="padding:10px;color:#999">No keywords found</div>';
+  inner += '</div>';
+  container.innerHTML = inner;
+  document.querySelector('.wrap > .grid').prepend(container);
+}
+
+function downloadResults(){
+  Object.entries(keywordData).forEach(([keyword, lines])=>{
+    if(!lines.length) return;
+    const blob = new Blob([lines.join('\n')], {type:'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `results_${sanitizeFilename(keyword)}.txt`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  });
+}
+
+function scanDomains(){
+  readSelectedFile(()=>{
+    domainCounts = {};
+    const lines = fileText.split(/\r?\n/);
+    const domainRegex = /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})(?=[\/:\s]|$)/g;
+    lines.forEach(line=>{
+      let m;
+      while((m = domainRegex.exec(line)) !== null){
+        const d = m[1].toLowerCase();
+        domainCounts[d] = (domainCounts[d]||0) + 1;
+      }
+    });
+    renderDomainCounts();
+  });
+}
+
+function renderDomainCounts(){
+  const el = document.getElementById('domainResults');
+  el.innerHTML = '';
+  const entries = Object.entries(domainCounts).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ el.innerHTML = '<div class="small" style="padding:10px;color:#999">No domains found</div>'; return; }
+  entries.forEach(([domain,count])=>{
+    const row = document.createElement('div'); row.className='row';
+    row.innerHTML = `<div class="domain">${escapeHtml(domain)}</div><div class="count">${count.toLocaleString()}</div>`;
+    el.appendChild(row);
+  });
+}
+
+function findRelations(){
+  const target = (document.getElementById('relationTarget').value || '').toLowerCase().trim();
+  if(!target){ alert('Enter a target'); return; }
+  const keywords = getKeywords().filter(k=>k!==target);
+  if(!keywords.length){ alert('Enter more keywords to check relations'); return; }
+  if(!fileText){ readSelectedFile(()=>_findRelations(target, keywords)); } else _findRelations(target, keywords);
+}
+function _findRelations(target, keywords){
+  const lines = fileText.split(/\r?\n/);
+  const found = new Set();
+  lines.forEach(line=>{
+    const l = line.toLowerCase();
+    if(l.includes(target)){
+      keywords.forEach(k=>{ if(l.includes(k)) found.add(k); });
+    }
+  });
+  const out = document.getElementById('relationOutput');
+  out.innerHTML = '';
+  if(found.size===0){ out.innerHTML = '<div class="small" style="padding:10px;color:#999">No related keywords found on same lines as target</div>'; return; }
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<div class="small muted">Target: <strong>${escapeHtml(target)}</strong></div><div style="margin-top:8px"><ul>${[...found].map(x=>'<li>'+escapeHtml(x)+'</li>').join('')}</ul></div>`;
+  out.appendChild(card);
+}
+
+function prepareSend(){
+  if(!Object.keys(keywordData).length){ alert('Run SCAN FILE first'); return; }
+  const preview = document.getElementById('sendPreview');
+  preview.innerHTML = '<div class="small muted">Files ready to send:</div>';
+  const list = Object.entries(keywordData).filter(([k,l])=>l.length).map(([k,l])=>`results_${sanitizeFilename(k)}.txt (${l.length})`);
+  if(!list.length) preview.innerHTML += '<div class="small" style="color:#999">No files to send</div>'; else preview.innerHTML += '<div class="small">'+list.join('<br>')+'</div>';
+  document.getElementById('status').innerText = 'Ready to send. Choose a channel and click SEND SELECTED CHANNEL.';
+}
+
+async function sendToTelegram(){
+  const ch = document.getElementById('channelSelect').value;
+  if(!ch){ alert('Select a channel first (Refresh Channels after login)'); return; }
+
+  const files = Object.entries(keywordData).filter(([k,l])=>l.length).map(([k,l])=>({
+    name: `results_${sanitizeFilename(k)}.txt`,
+    content: l.join('\n')
+  }));
+  if(!files.length){ alert('No files to send'); return; }
+
+  setStatus('Sending files to Telegram...');
+  try{
+    const fd = new FormData();
+    fd.append('channelId', ch);
+    files.forEach(f=>{
+      const blob = new Blob([f.content], {type:'text/plain'});
+      fd.append('files', blob, f.name);
+    });
+    const resp = await fetch('http://localhost:3000/send', { method:'POST', body: fd });
+    const j = await resp.json();
+    if(resp.ok) {
+      setStatus('✅ Sent to Telegram: ' + (j.status || 'ok'));
+    } else {
+      setStatus('❌ Error sending: ' + (j.error || JSON.stringify(j)));
+    }
+  }catch(err){
+    setStatus('❌ Network error: ' + (err.message||err));
+  }
+}
+
+function setStatus(s){ document.getElementById('status').innerText = s; }
+
+async function startPhoneLogin(){
+  const apiId = document.getElementById('apiId').value.trim();
+  const apiHash = document.getElementById('apiHash').value.trim();
+  if(!apiId || !apiHash){ alert('Enter API_ID and API_HASH'); return; }
+  setStatus('Initializing backend with API credentials...');
+  try{
+    const res = await fetch('http://localhost:3000/auth/start', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ apiId: apiId, apiHash: apiHash })
+    });
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error: '+(j.error||JSON.stringify(j))); return; }
+    setStatus('Initialized. Now enter phone below and click Send Code.');
+
+    const authFlow = document.getElementById('authFlow');
+    authFlow.innerHTML = `
+      <div style="margin-top:8px;">
+        <input id="loginPhone" placeholder="+1234567890" style="width:100%;padding:8px;border-radius:8px;background:#071018;border:1px solid rgba(255,255,255,0.03);color:var(--neon)">
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn" onclick="sendLoginCode()">Send Code</button>
+          <button class="btn secondary" onclick="clearAuthFlow()">Cancel</button>
+        </div>
+      </div>
+    `;
+  }catch(err){
+    setStatus('Network error: '+err.message);
+  }
+}
+
+async function sendLoginCode(){
+  const phone = document.getElementById('loginPhone').value.trim();
+  if(!phone){ alert('Enter phone'); return; }
+  setStatus('Requesting backend to send code...');
+  try{
+    const res = await fetch('http://localhost:3000/auth/sendCode', {
+      method:'POST',headers:{'Content-Type':'application/json'}, body: JSON.stringify({ phone })
+    });
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error: '+(j.error||JSON.stringify(j))); return; }
+    setStatus('Code sent. Enter code to verify.');
+
+    document.getElementById('authFlow').innerHTML = `
+      <div style="margin-top:8px;">
+        <input id="loginCode" placeholder="12345" style="width:100%;padding:8px;border-radius:8px;background:#071018;border:1px solid rgba(255,255,255,0.03);color:var(--neon)">
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn" onclick="verifyLoginCode()">Verify Code</button>
+          <button class="btn secondary" onclick="clearAuthFlow()">Cancel</button>
+        </div>
+      </div>
+    `;
+  }catch(err){ setStatus('Network error: '+err.message); }
+}
+
+async function verifyLoginCode(){
+  const phone = document.getElementById('loginPhone').value.trim();
+  const code = document.getElementById('loginCode').value.trim();
+  if(!code || !phone){ alert('Missing phone or code'); return; }
+  setStatus('Verifying code with backend...');
+  try{
+    const res = await fetch('http://localhost:3000/auth/verify', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ phone, code })
+    });
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error verify: '+(j.error||JSON.stringify(j))); return; }
+    setStatus('✅ Verified & logged in. Fetch channels now.');
+    document.getElementById('authFlow').innerHTML = '<div class="small">Login complete.</div>';
+  }catch(err){ setStatus('Network error: '+err.message); }
+}
+
+function clearAuthFlow(){ document.getElementById('authFlow').innerHTML = ''; setStatus('Cancelled auth flow'); }
+
+async function startQrLogin(){
+  const apiId = document.getElementById('apiId').value.trim();
+  const apiHash = document.getElementById('apiHash').value.trim();
+  if(!apiId || !apiHash){ alert('Enter API_ID and API_HASH'); return; }
+  setStatus('Requesting backend to generate QR...');
+  try{
+    const res = await fetch('http://localhost:3000/auth/qr/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ apiId, apiHash }) });
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error: '+(j.error||JSON.stringify(j))); return; }
+    document.getElementById('authFlow').innerHTML = `
+      <div>
+        <div class="qr-img"><img id="qrImg" src="${j.qrData}" style="max-width:100%"></div>
+        <div class="muted small" style="margin-top:8px">Scan the QR with your Telegram mobile app (Settings → Devices → Scan QR). After scanning, click "Finish".</div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn" onclick="pollQrStatus()">Finish / Check</button>
+          <button class="btn secondary" onclick="cancelQr()">Cancel</button>
+        </div>
+      </div>
+    `;
+    setStatus('QR displayed — scan with Telegram app.');
+  }catch(err){ setStatus('Network error: '+err.message); }
+}
+
+async function pollQrStatus(){
+  setStatus('Checking QR login status...');
+  try{
+    const res = await fetch('http://localhost:3000/auth/qr/status');
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error: '+(j.error||JSON.stringify(j))); return; }
+    if(j.loggedIn) { setStatus('✅ Logged in via QR.'); document.getElementById('authFlow').innerHTML = '<div class="small">Logged in via QR.</div>'; }
+    else setStatus('Not logged yet. Try scanning and click Finish again in a moment.');
+  }catch(err){ setStatus('Network error: '+err.message); }
+}
+
+function cancelQr(){ fetch('http://localhost:3000/auth/qr/cancel', {method:'POST'}).catch(()=>{}); document.getElementById('authFlow').innerHTML=''; setStatus('QR cancelled'); }
+
+async function fetchChannels(){
+  setStatus('Fetching channels from backend...');
+  try{
+    const res = await fetch('http://localhost:3000/channels');
+    const j = await res.json();
+    if(!res.ok){ setStatus('Error: '+(j.error||JSON.stringify(j))); return; }
+    const sel = document.getElementById('channelSelect');
+    sel.innerHTML = '<option value="">-- select channel --</option>';
+    j.forEach(ch=>{ const opt = document.createElement('option'); opt.value = ch.id; opt.text = ch.title; sel.appendChild(opt); });
+    setStatus('Channels loaded: ' + j.length);
+  }catch(err){ setStatus('Network error: '+err.message); }
+}
+
+function sanitizeFilename(s){ return s.replace(/[^\w.-]/g,'_'); }
+function escapeHtml(s){ return (s+'').replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+
+</body>
+</html>
